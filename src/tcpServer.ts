@@ -179,6 +179,11 @@ export function startTcpServer(port: number): net.Server {
 
   return server;
 }
+// Mapa de registros pendientes
+export const pendingRegistrations = new Map<string, {
+  userName: string;
+  startedAt: Date;
+}>();
 
 export function sendCommandToDevice(
   deviceId: string,

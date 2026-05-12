@@ -145,4 +145,54 @@ router.post("/devices/:terminalId/seal", (req, res) => {
   }
 });
 
+// Activar modo registro de huella
+router.post("/devices/:terminalId/fingerprint/register", (req, res) => {
+  try {
+    const { terminalId } = req.params;
+    const { userName } = req.body as { userName: string };
+
+    if (!userName) {
+      return res.status(400).json({
+        ok: false,
+        message: "Debes enviar userName",
+      });
+    }
+
+    const device = getDeviceByTerminalId(terminalId!);
+
+    if (!device) {
+      return res.status(404).json({
+        ok: false,
+        message: `Candado ${terminalId} no está conectado`,
+      });
+    }
+
+    // Guardar pendiente de registro
+    pendingRegistrations.set(terminalId!, {
+      userName,
+      startedAt: new Date(),
+    });
+
+    // Enviar comando al candado
+    const command = buildEnableFingerprintRegister(
+      terminalId!,
+      Math.floor(Math.random() * 65535),
+    );
+    device.socket.write(command);
+
+    console.log(`👆 Modo registro huella activado para ${terminalId} - Usuario: ${userName}`);
+
+    return res.json({
+      ok: true,
+      message: "Modo registro activado. Pide al usuario que ponga el dedo en el candado.",
+      terminalId,
+      userName,
+      expiresIn: "60 segundos",
+    });
+
+  } catch (error: any) {
+    return res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
 export default router;

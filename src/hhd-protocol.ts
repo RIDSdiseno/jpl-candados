@@ -179,3 +179,38 @@ export function buildSealCommand(
     Buffer.from([0x7E]),
   ]);
 }
+
+// Activar modo registro de huella/tarjeta (0x0214)
+export function buildEnableFingerprintRegister(
+  terminalId: string,
+  serialNumber: number,
+  blockNumber: number = 0,
+  address: number = 0
+): Buffer {
+  // Cuerpo: bloque(1) + dirección(2) + cardId vacío(4) para activar modo registro
+  const block = Buffer.from([blockNumber]);
+  const addr = Buffer.alloc(2);
+  addr.writeUInt16BE(address, 0);
+  // Card ID = 0xFFFFFFFF activa modo registro en el candado
+  const cardId = Buffer.from([0xFF, 0xFF, 0xFF, 0xFF]);
+  
+  const body = Buffer.concat([block, addr, cardId]);
+
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(0x0214, 0);
+  header.writeUInt16BE(body.length, 2);
+  Buffer.from(terminalId, 'hex').copy(header, 4);
+  header.writeUInt16BE(serialNumber, 10);
+
+  const packet = Buffer.concat([header, body]);
+
+  let checksum = 0;
+  for (const byte of packet) checksum ^= byte;
+
+  return Buffer.concat([
+    Buffer.from([0x7E]),
+    escape7E(packet),
+    Buffer.from([checksum]),
+    Buffer.from([0x7E]),
+  ]);
+}
