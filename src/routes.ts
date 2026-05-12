@@ -6,8 +6,9 @@ import {
   sendCommandToDevice,
   getServerStats,
   getDeviceByTerminalId,
+  pendingRegistrations,
 } from "./tcpServer.js";
-import { buildSealCommand } from "./hhd-protocol.js";
+import { buildSealCommand, buildEnableFingerprintRegister } from "./hhd-protocol.js";
 
 const router = Router();
 
@@ -145,7 +146,7 @@ router.post("/devices/:terminalId/seal", (req, res) => {
   }
 });
 
-// Activar modo registro de huella
+// ✅ ACTIVAR MODO REGISTRO DE HUELLA
 router.post("/devices/:terminalId/fingerprint/register", (req, res) => {
   try {
     const { terminalId } = req.params;
@@ -193,6 +194,17 @@ router.post("/devices/:terminalId/fingerprint/register", (req, res) => {
   } catch (error: any) {
     return res.status(500).json({ ok: false, message: error.message });
   }
+});
+
+// ✅ VER REGISTROS PENDIENTES
+router.get("/devices/:terminalId/fingerprint/pending", (req, res) => {
+  const { terminalId } = req.params;
+  const pending = pendingRegistrations.get(terminalId!);
+  res.json({
+    ok: true,
+    terminalId,
+    pending: pending ?? null,
+  });
 });
 
 export default router;
