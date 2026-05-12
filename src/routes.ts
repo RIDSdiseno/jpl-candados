@@ -8,7 +8,11 @@ import {
   getDeviceByTerminalId,
   pendingRegistrations,
 } from "./tcpServer.js";
-import { buildSealCommand, buildEnableFingerprintRegister } from "./hhd-protocol.js";
+import { 
+  buildSealCommand, 
+  buildEnableFingerprintRegister,
+  buildWriteICCard,
+} from "./hhd-protocol.js";
 
 const router = Router();
 
@@ -205,6 +209,120 @@ router.get("/devices/:terminalId/fingerprint/pending", (req, res) => {
     terminalId,
     pending: pending ?? null,
   });
+});
+
+// ✅ ESCRIBIR TARJETA IC / HUELLA CON ID ESPECÍFICO
+router.post("/devices/:terminalId/nfc/write", (req, res) => {
+  try {
+    const { terminalId } = req.params;
+    const { cardId, blockNumber, address, userName } = req.body as {
+      cardId: string;
+      blockNumber?: number;
+      address?: number;
+      userName?: string;
+    };
+
+    if (!cardId) {
+      return res.status(400).json({
+        ok: false,
+        message: "Debes enviar cardId (8 dígitos hex, ej: 00000001)",
+      });
+    }
+
+    if (cardId.length !== 8) {
+      return res.status(400).json({
+        ok: false,
+        message: "cardId debe tener exactamente 8 dígitos hex",
+      });
+    }
+
+    const device = getDeviceByTerminalId(terminalId!);
+
+    if (!device) {
+      return res.status(404).json({
+        ok: false,
+        message: `Candado ${terminalId} no está conectado`,
+      });
+    }
+
+    const command = buildWriteICCard(
+      terminalId!,
+      Math.floor(Math.random() * 65535),
+      blockNumber ?? 0,
+      address ?? 0,
+      cardId
+    );
+
+    device.socket.write(command);
+
+    console.log(`💳 Tarjeta ${cardId} escrita en candado ${terminalId} - Usuario: ${userName ?? 'N/A'}`);
+
+    return res.json({
+      ok: true,
+      message: `Tarjeta ${cardId} enviada al candado`,
+      terminalId,
+      cardId,
+      userName: userName ?? null,
+      hexSent: command.toString('hex').toUpperCase(),
+      sentAt: new Date(),
+    });
+
+  } catch (error: any) {
+    return res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
+// ✅ LEER TARJETAS IC DEL CANDADO
+router.get("/devices/:terminalId/nfc/read/:blockNumber", (req, res) => {
+  try {
+    const { terminalId, blockNumber } = req.params;
+
+    const device = getDeviceByTerminalId(terminalId!);
+
+    if (!device) {
+      return res.status(404).json({
+        ok: false,
+        message: `Candado ${terminalId} no está conectado`,
+      });
+    }
+
+    const block = Number(blockNumber ?? 0);
+    const readCmd = Buffer.concat([
+      Buffer.from([0x7E]),
+      Buffer.from([0x02, 0x16]), // msg ID 0x0216
+    ]);
+
+    // Construir comando 0x0216 (leer IC cards)
+    const body = Buffer.from([block]);
+    const header = Buffer.alloc(12);
+    header.writeUInt16BE(0x0216, 0);
+    header.writeUInt16BE(body.length, 2);
+    Buffer.from(terminalId!, 'hex').copy(header, 4);
+    header.writeUInt16BE(Math.floor(Math.random() * 65535), 10);
+
+    const packet = Buffer.concat([header, body]);
+    let checksum = 0;
+    for (const byte of packet) checksum ^= byte;
+
+    const command = Buffer.concat([
+      Buffer.from([0x7E]),
+      packet,
+      Buffer.from([checksum]),
+      Buffer.from([0x7E]),
+    ]);
+
+    device.socket.write(command);
+
+    return res.json({
+      ok: true,
+      message: `Comando leer tarjetas bloque ${block} enviado`,
+      terminalId,
+      blockNumber: block,
+    });
+
+  } catch (error: any) {
+    return res.status(500).json({ ok: false, message: error.message });
+  }
 });
 
 export default router;

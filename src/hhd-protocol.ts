@@ -181,20 +181,25 @@ export function buildSealCommand(
 }
 
 // Activar modo registro de huella/tarjeta (0x0214)
-export function buildEnableFingerprintRegister(
+// Escribir tarjeta IC / huella en el candado (0x0214)
+export function buildWriteICCard(
   terminalId: string,
   serialNumber: number,
-  blockNumber: number = 0,
-  address: number = 0
+  blockNumber: number,
+  address: number,
+  cardId: string  // 8 dígitos ej: "00000001"
 ): Buffer {
-  // Cuerpo: bloque(1) + dirección(2) + cardId vacío(4) para activar modo registro
   const block = Buffer.from([blockNumber]);
+  
+  // Dirección: WORD (2 bytes)
   const addr = Buffer.alloc(2);
   addr.writeUInt16BE(address, 0);
-  // Card ID = 0xFFFFFFFF activa modo registro en el candado
-  const cardId = Buffer.from([0xFF, 0xFF, 0xFF, 0xFF]);
   
-  const body = Buffer.concat([block, addr, cardId]);
+  // Card ID: BCD 4 bytes (8 dígitos → 4 bytes BCD)
+  // "00000001" → 0x00 0x00 0x00 0x01
+  const cardBytes = Buffer.from(cardId.padStart(8, '0'), 'hex');
+
+  const body = Buffer.concat([block, addr, cardBytes]);
 
   const header = Buffer.alloc(12);
   header.writeUInt16BE(0x0214, 0);
@@ -213,4 +218,21 @@ export function buildEnableFingerprintRegister(
     Buffer.from([checksum]),
     Buffer.from([0x7E]),
   ]);
+}
+
+// Activar modo registro de huella (0x0214 con cardId especial)
+export function buildEnableFingerprintRegister(
+  terminalId: string,
+  serialNumber: number,
+  blockNumber: number = 0,
+  address: number = 0
+): Buffer {
+  // Enviamos cardId = "FFFFFFFF" para activar modo registro
+  return buildWriteICCard(
+    terminalId,
+    serialNumber,
+    blockNumber,
+    address,
+    "FFFFFFFF"
+  );
 }
