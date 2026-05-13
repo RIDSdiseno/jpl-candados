@@ -180,23 +180,19 @@ export function buildSealCommand(
   ]);
 }
 
-// Activar modo registro de huella/tarjeta (0x0214)
 // Escribir tarjeta IC / huella en el candado (0x0214)
 export function buildWriteICCard(
   terminalId: string,
   serialNumber: number,
   blockNumber: number,
   address: number,
-  cardId: string  // 8 dígitos ej: "00000001"
+  cardId: string
 ): Buffer {
   const block = Buffer.from([blockNumber]);
-  
-  // Dirección: WORD (2 bytes)
+
   const addr = Buffer.alloc(2);
   addr.writeUInt16BE(address, 0);
-  
-  // Card ID: BCD 4 bytes (8 dígitos → 4 bytes BCD)
-  // "00000001" → 0x00 0x00 0x00 0x01
+
   const cardBytes = Buffer.from(cardId.padStart(8, '0'), 'hex');
 
   const body = Buffer.concat([block, addr, cardBytes]);
@@ -227,7 +223,6 @@ export function buildEnableFingerprintRegister(
   blockNumber: number = 0,
   address: number = 0
 ): Buffer {
-  // Enviamos cardId = "FFFFFFFF" para activar modo registro
   return buildWriteICCard(
     terminalId,
     serialNumber,
@@ -235,4 +230,39 @@ export function buildEnableFingerprintRegister(
     address,
     "FFFFFFFF"
   );
+}
+
+// Activar modo auto-binding de tarjeta/huella (0x0310 parámetro 0x2a)
+export function buildEnableAutoCardBinding(
+  terminalId: string,
+  serialNumber: number,
+  minutes: number = 5
+): Buffer {
+  const paramValue = Buffer.alloc(4);
+  paramValue.writeUInt32BE(minutes, 0);
+
+  const body = Buffer.concat([
+    Buffer.from([0x01]),
+    Buffer.from([0x2a]),
+    Buffer.from([0x04]),
+    paramValue,
+  ]);
+
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(0x0310, 0);
+  header.writeUInt16BE(body.length, 2);
+  Buffer.from(terminalId, 'hex').copy(header, 4);
+  header.writeUInt16BE(serialNumber, 10);
+
+  const packet = Buffer.concat([header, body]);
+
+  let checksum = 0;
+  for (const byte of packet) checksum ^= byte;
+
+  return Buffer.concat([
+    Buffer.from([0x7E]),
+    escape7E(packet),
+    Buffer.from([checksum]),
+    Buffer.from([0x7E]),
+  ]);
 }
