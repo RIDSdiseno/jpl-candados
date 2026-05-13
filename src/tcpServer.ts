@@ -28,6 +28,15 @@ export const connectedDevices = new Map<string, DeviceConnection>();
 export const devicesByTerminalId = new Map<string, DeviceConnection>();
 export const receivedPackets: ReceivedPacket[] = [];
 
+// ✅ Cola de comandos pendientes por terminalId
+export const pendingCommands = new Map<string, Buffer[]>();
+
+// ✅ Registros pendientes de huella
+export const pendingRegistrations = new Map<string, {
+  userName: string;
+  startedAt: Date;
+}>();
+
 let packetCounter = 1;
 let totalConnections = 0;
 let totalPackets = 0;
@@ -43,6 +52,14 @@ function normalizeRaw(buffer: Buffer): string {
 
 export function getDeviceByTerminalId(terminalId: string): DeviceConnection | undefined {
   return devicesByTerminalId.get(terminalId.toUpperCase());
+}
+
+// ✅ Encolar comando para cuando el candado se conecte
+export function queueCommand(terminalId: string, command: Buffer): void {
+  const existing = pendingCommands.get(terminalId.toUpperCase()) ?? [];
+  existing.push(command);
+  pendingCommands.set(terminalId.toUpperCase(), existing);
+  console.log(`📋 Comando encolado para ${terminalId} (${existing.length} en cola)`);
 }
 
 export function startTcpServer(port: number): net.Server {
@@ -104,6 +121,17 @@ export function startTcpServer(port: number): net.Server {
           currentDevice.terminalId = parsed.terminalId;
           devicesByTerminalId.set(parsed.terminalId, currentDevice);
           console.log(`🗺️  Mapeado: ${parsed.terminalId} → ${socketId}`);
+
+          // ✅ Enviar comandos pendientes automáticamente
+          const pending = pendingCommands.get(parsed.terminalId);
+          if (pending && pending.length > 0) {
+            console.log(`📤 Enviando ${pending.length} comando(s) pendiente(s) a ${parsed.terminalId}`);
+            for (const cmd of pending) {
+              socket.write(cmd);
+              console.log(`📤 Comando pendiente enviado a ${parsed.terminalId}`);
+            }
+            pendingCommands.delete(parsed.terminalId);
+          }
         }
 
         const packet: ReceivedPacket = {
@@ -148,7 +176,6 @@ export function startTcpServer(port: number): net.Server {
       }
     });
 
-    // ✅ CORREGIDO: usar connectedDevices.get(socketId) en vez de currentDevice
     socket.on("close", () => {
       console.log(`❌ Conexión cerrada: ${socketId}`);
       const closing = connectedDevices.get(socketId);
@@ -179,11 +206,6 @@ export function startTcpServer(port: number): net.Server {
 
   return server;
 }
-// Mapa de registros pendientes
-export const pendingRegistrations = new Map<string, {
-  userName: string;
-  startedAt: Date;
-}>();
 
 export function sendCommandToDevice(
   deviceId: string,
@@ -216,6 +238,7 @@ export function getServerStats() {
   return {
     connectedDevices: connectedDevices.size,
     connectedByTerminalId: devicesByTerminalId.size,
+    pendingCommands: pendingCommands.size,
     totalConnections,
     totalPackets,
     storedPackets: receivedPackets.length,
