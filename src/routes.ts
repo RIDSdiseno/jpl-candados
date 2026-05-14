@@ -14,6 +14,7 @@ import {
   buildEnableFingerprintRegister,
   buildWriteICCard,
   buildEnableAutoCardBinding,
+  buildSetCardTriggerMode
 } from "./hhd-protocol.js";
 
 const router = Router();
@@ -312,6 +313,39 @@ router.get("/devices/:terminalId/nfc/read/:blockNumber", (req, res) => {
       terminalId,
       blockNumber: block,
     });
+  } catch (error: any) {
+    return res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
+// Configurar modo detección tarjeta/huella
+router.post("/devices/:terminalId/nfc/triggermode", (req, res) => {
+  try {
+    const { terminalId } = req.params;
+    const { mode } = req.body as { mode?: number };
+
+    const command = buildSetCardTriggerMode(
+      terminalId!,
+      Math.floor(Math.random() * 65535),
+      mode ?? 0
+    );
+
+    const device = getDeviceByTerminalId(terminalId!);
+    if (device) {
+      device.socket.write(command);
+    } else {
+      queueCommand(terminalId!, command);
+    }
+
+    return res.json({
+      ok: true,
+      message: device
+        ? `Modo trigger ${mode ?? 0} enviado`
+        : `Modo trigger ${mode ?? 0} encolado`,
+      deviceOnline: device !== null,
+      hexSent: command.toString('hex').toUpperCase(),
+    });
+
   } catch (error: any) {
     return res.status(500).json({ ok: false, message: error.message });
   }
