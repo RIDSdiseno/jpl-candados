@@ -266,3 +266,36 @@ export function buildEnableAutoCardBinding(
     Buffer.from([0x7E]),
   ]);
 }
+
+// Configurar modo detección de tarjeta (0x0310 parámetro 0x2b)
+export function buildSetCardTriggerMode(
+  terminalId: string,
+  serialNumber: number,
+  mode: number = 0
+): Buffer {
+  const body = Buffer.concat([
+    Buffer.from([0x01]),
+    Buffer.from([0x2b]),
+    Buffer.from([0x01]),
+    Buffer.from([mode]),
+  ]);
+
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(0x0310, 0);
+  header.writeUInt16BE(body.length, 2);
+  Buffer.from(terminalId, 'hex').copy(header, 4);
+  header.writeUInt16BE(serialNumber, 10);
+
+  const packet = Buffer.concat([header, body]);
+
+  let checksum = 0;
+  for (const byte of packet) checksum ^= byte;
+
+  return Buffer.concat([
+    Buffer.from([0x7E]),
+    escape7E(packet),
+    Buffer.from([checksum]),
+    Buffer.from([0x7E]),
+  ]);
+}
+
