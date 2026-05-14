@@ -23,7 +23,6 @@ export interface Position {
   gpsValid: boolean;
 }
 
-// Desenmascarar bytes 0x7D
 function unescape(buffer: Buffer): Buffer {
   const result: number[] = [];
   let i = 0;
@@ -40,7 +39,6 @@ function unescape(buffer: Buffer): Buffer {
   return Buffer.from(result);
 }
 
-// Escape bytes para envío
 function escape7E(buffer: Buffer): Buffer {
   const result: number[] = [];
   for (const byte of buffer) {
@@ -55,27 +53,22 @@ function escape7E(buffer: Buffer): Buffer {
   return Buffer.from(result);
 }
 
-// Parsear paquete completo
 export function parsePacket(raw: Buffer): HHDPacket | null {
   try {
     if (raw[0] !== 0x7E) return null;
-
     const unescaped = unescape(raw.slice(1, raw.length - 1));
-
     const msgId = unescaped.readUInt16BE(0);
     const msgAttr = unescaped.readUInt16BE(2);
     const msgLength = msgAttr & 0x03FF;
     const terminalId = unescaped.slice(4, 10).toString('hex').toUpperCase();
     const serialNumber = unescaped.readUInt16BE(10);
     const body = unescaped.slice(12, 12 + msgLength);
-
     return { msgId, msgLength, terminalId, serialNumber, body };
   } catch {
     return null;
   }
 }
 
-// Parsear cuerpo del 0x0200 (posición)
 export function parsePosition(body: Buffer): Position | null {
   try {
     const alarmFlag = body.readUInt32BE(0);
@@ -85,16 +78,12 @@ export function parsePosition(body: Buffer): Position | null {
     const elevation = body.readUInt16BE(16);
     const speed = body.readUInt16BE(18);
     const direction = body.readUInt16BE(20);
-
     const t = body.slice(22, 28);
     const time = `20${t[0]!.toString(16).padStart(2,'0')}-${t[1]!.toString(16).padStart(2,'0')}-${t[2]!.toString(16).padStart(2,'0')} ${t[3]!.toString(16).padStart(2,'0')}:${t[4]!.toString(16).padStart(2,'0')}:${t[5]!.toString(16).padStart(2,'0')}`;
-
     const latitude = latRaw / 1_000_000;
     const longitude = lonRaw / 1_000_000;
-
     const isSouth = (status >> 2) & 1;
     const isWest = (status >> 3) & 1;
-
     return {
       alarmFlag,
       status,
@@ -113,7 +102,6 @@ export function parsePosition(body: Buffer): Position | null {
   }
 }
 
-// Construir respuesta 0x8001
 export function buildResponse8001(
   terminalId: string,
   serialNumber: number,
@@ -123,18 +111,14 @@ export function buildResponse8001(
   body.writeUInt16BE(serialNumber, 0);
   body.writeUInt16BE(answerId, 2);
   body[4] = 0x00;
-
   const header = Buffer.alloc(12);
   header.writeUInt16BE(0x8001, 0);
   header.writeUInt16BE(body.length, 2);
   Buffer.from(terminalId, 'hex').copy(header, 4);
   header.writeUInt16BE(0x0001, 10);
-
   const packet = Buffer.concat([header, body]);
-
   let checksum = 0;
   for (const byte of packet) checksum ^= byte;
-
   return Buffer.concat([
     Buffer.from([0x7E]),
     escape7E(packet),
@@ -143,7 +127,6 @@ export function buildResponse8001(
   ]);
 }
 
-// Comando Seal/Unseal (0x0310 parámetro 0x24)
 export function buildSealCommand(
   terminalId: string,
   serialNumber: number,
@@ -153,25 +136,20 @@ export function buildSealCommand(
   const sealByte = Buffer.from([seal ? 0x01 : 0x00]);
   const operatorBytes = Buffer.from(operatorName, 'utf8');
   const paramValue = Buffer.concat([sealByte, operatorBytes]);
-
   const body = Buffer.concat([
     Buffer.from([0x01]),
     Buffer.from([0x24]),
     Buffer.from([paramValue.length]),
     paramValue,
   ]);
-
   const header = Buffer.alloc(12);
   header.writeUInt16BE(0x0310, 0);
   header.writeUInt16BE(body.length, 2);
   Buffer.from(terminalId, 'hex').copy(header, 4);
   header.writeUInt16BE(serialNumber, 10);
-
   const packet = Buffer.concat([header, body]);
-
   let checksum = 0;
   for (const byte of packet) checksum ^= byte;
-
   return Buffer.concat([
     Buffer.from([0x7E]),
     escape7E(packet),
@@ -180,7 +158,6 @@ export function buildSealCommand(
   ]);
 }
 
-// Escribir tarjeta IC / huella en el candado (0x0214)
 export function buildWriteICCard(
   terminalId: string,
   serialNumber: number,
@@ -189,25 +166,18 @@ export function buildWriteICCard(
   cardId: string
 ): Buffer {
   const block = Buffer.from([blockNumber]);
-
   const addr = Buffer.alloc(2);
   addr.writeUInt16BE(address, 0);
-
   const cardBytes = Buffer.from(cardId.padStart(8, '0'), 'hex');
-
   const body = Buffer.concat([block, addr, cardBytes]);
-
   const header = Buffer.alloc(12);
   header.writeUInt16BE(0x0214, 0);
   header.writeUInt16BE(body.length, 2);
   Buffer.from(terminalId, 'hex').copy(header, 4);
   header.writeUInt16BE(serialNumber, 10);
-
   const packet = Buffer.concat([header, body]);
-
   let checksum = 0;
   for (const byte of packet) checksum ^= byte;
-
   return Buffer.concat([
     Buffer.from([0x7E]),
     escape7E(packet),
@@ -216,23 +186,15 @@ export function buildWriteICCard(
   ]);
 }
 
-// Activar modo registro de huella (0x0214 con cardId especial)
 export function buildEnableFingerprintRegister(
   terminalId: string,
   serialNumber: number,
   blockNumber: number = 0,
   address: number = 0
 ): Buffer {
-  return buildWriteICCard(
-    terminalId,
-    serialNumber,
-    blockNumber,
-    address,
-    "FFFFFFFF"
-  );
+  return buildWriteICCard(terminalId, serialNumber, blockNumber, address, "FFFFFFFF");
 }
 
-// Activar modo auto-binding de tarjeta/huella (0x0310 parámetro 0x2a)
 export function buildEnableAutoCardBinding(
   terminalId: string,
   serialNumber: number,
@@ -240,25 +202,20 @@ export function buildEnableAutoCardBinding(
 ): Buffer {
   const paramValue = Buffer.alloc(4);
   paramValue.writeUInt32BE(minutes, 0);
-
   const body = Buffer.concat([
     Buffer.from([0x01]),
     Buffer.from([0x2a]),
     Buffer.from([0x04]),
     paramValue,
   ]);
-
   const header = Buffer.alloc(12);
   header.writeUInt16BE(0x0310, 0);
   header.writeUInt16BE(body.length, 2);
   Buffer.from(terminalId, 'hex').copy(header, 4);
   header.writeUInt16BE(serialNumber, 10);
-
   const packet = Buffer.concat([header, body]);
-
   let checksum = 0;
   for (const byte of packet) checksum ^= byte;
-
   return Buffer.concat([
     Buffer.from([0x7E]),
     escape7E(packet),
@@ -267,7 +224,6 @@ export function buildEnableAutoCardBinding(
   ]);
 }
 
-// Configurar modo detección de tarjeta (0x0310 parámetro 0x2b)
 export function buildSetCardTriggerMode(
   terminalId: string,
   serialNumber: number,
@@ -279,18 +235,14 @@ export function buildSetCardTriggerMode(
     Buffer.from([0x01]),
     Buffer.from([mode]),
   ]);
-
   const header = Buffer.alloc(12);
   header.writeUInt16BE(0x0310, 0);
   header.writeUInt16BE(body.length, 2);
   Buffer.from(terminalId, 'hex').copy(header, 4);
   header.writeUInt16BE(serialNumber, 10);
-
   const packet = Buffer.concat([header, body]);
-
   let checksum = 0;
   for (const byte of packet) checksum ^= byte;
-
   return Buffer.concat([
     Buffer.from([0x7E]),
     escape7E(packet),
@@ -299,3 +251,58 @@ export function buildSetCardTriggerMode(
   ]);
 }
 
+export function buildEnableTouchWakeUp(
+  terminalId: string,
+  serialNumber: number,
+  enable: boolean = true
+): Buffer {
+  const body = Buffer.concat([
+    Buffer.from([0x01]),
+    Buffer.from([0x5E]),
+    Buffer.from([0x01]),
+    Buffer.from([enable ? 0x01 : 0x00]),
+  ]);
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(0x0310, 0);
+  header.writeUInt16BE(body.length, 2);
+  Buffer.from(terminalId, 'hex').copy(header, 4);
+  header.writeUInt16BE(serialNumber, 10);
+  const packet = Buffer.concat([header, body]);
+  let checksum = 0;
+  for (const byte of packet) checksum ^= byte;
+  return Buffer.concat([
+    Buffer.from([0x7E]),
+    escape7E(packet),
+    Buffer.from([checksum]),
+    Buffer.from([0x7E]),
+  ]);
+}
+
+// ✅ Configurar contraseña IC card (0x0310 parámetro 0x12)
+export function buildSetICCardPassword(
+  terminalId: string,
+  serialNumber: number,
+  password: string = "665512668834"
+): Buffer {
+  const passBytes = Buffer.from(password, 'utf8');
+  const body = Buffer.concat([
+    Buffer.from([0x01]),
+    Buffer.from([0x12]),
+    Buffer.from([passBytes.length]),
+    passBytes,
+  ]);
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(0x0310, 0);
+  header.writeUInt16BE(body.length, 2);
+  Buffer.from(terminalId, 'hex').copy(header, 4);
+  header.writeUInt16BE(serialNumber, 10);
+  const packet = Buffer.concat([header, body]);
+  let checksum = 0;
+  for (const byte of packet) checksum ^= byte;
+  return Buffer.concat([
+    Buffer.from([0x7E]),
+    escape7E(packet),
+    Buffer.from([checksum]),
+    Buffer.from([0x7E]),
+  ]);
+}

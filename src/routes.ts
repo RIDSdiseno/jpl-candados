@@ -14,24 +14,19 @@ import {
   buildEnableFingerprintRegister,
   buildWriteICCard,
   buildEnableAutoCardBinding,
-  buildSetCardTriggerMode
+  buildSetCardTriggerMode,
+  buildEnableTouchWakeUp,
+  buildSetICCardPassword,
 } from "./hhd-protocol.js";
 
 const router = Router();
 
 router.get("/health", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "candado-backend",
-    time: new Date(),
-  });
+  res.json({ ok: true, service: "candado-backend", time: new Date() });
 });
 
 router.get("/stats", (_req, res) => {
-  res.json({
-    ok: true,
-    stats: getServerStats(),
-  });
+  res.json({ ok: true, stats: getServerStats() });
 });
 
 router.get("/devices", (_req, res) => {
@@ -60,11 +55,7 @@ router.get("/devices/connected", (_req, res) => {
 
 router.get("/packets", (req, res) => {
   const limit = Number(req.query.limit || 100);
-  res.json({
-    ok: true,
-    total: receivedPackets.length,
-    packets: receivedPackets.slice(0, limit),
-  });
+  res.json({ ok: true, total: receivedPackets.length, packets: receivedPackets.slice(0, limit) });
 });
 
 router.get("/devices/:deviceId/packets", (req, res) => {
@@ -78,10 +69,7 @@ router.get("/devices/:deviceId/packets", (req, res) => {
 router.post("/devices/:deviceId/command", (req, res) => {
   try {
     const { deviceId } = req.params;
-    const { command, mode } = req.body as {
-      command?: string;
-      mode?: "text" | "hex";
-    };
+    const { command, mode } = req.body as { command?: string; mode?: "text" | "hex" };
     if (!command) {
       return res.status(400).json({ ok: false, message: "Debes enviar command" });
     }
@@ -96,24 +84,11 @@ router.post("/devices/:deviceId/command", (req, res) => {
 router.post("/devices/:terminalId/seal", (req, res) => {
   try {
     const { terminalId } = req.params;
-    const { seal, operatorName } = req.body as {
-      seal: boolean;
-      operatorName?: string;
-    };
+    const { seal, operatorName } = req.body as { seal: boolean; operatorName?: string };
     if (seal === undefined) {
-      return res.status(400).json({
-        ok: false,
-        message: "Debes enviar seal: true (cerrar) o false (abrir)",
-      });
+      return res.status(400).json({ ok: false, message: "Debes enviar seal: true o false" });
     }
-
-    const command = buildSealCommand(
-      terminalId!,
-      Math.floor(Math.random() * 65535),
-      seal,
-      operatorName ?? "admin"
-    );
-
+    const command = buildSealCommand(terminalId!, Math.floor(Math.random() * 65535), seal, operatorName ?? "admin");
     const device = getDeviceByTerminalId(terminalId!);
     if (device) {
       device.socket.write(command);
@@ -122,12 +97,9 @@ router.post("/devices/:terminalId/seal", (req, res) => {
       queueCommand(terminalId!, command);
       console.log(`📋 Comando ${seal ? 'SEAL 🔒' : 'UNSEAL 🔓'} encolado para ${terminalId}`);
     }
-
     return res.json({
       ok: true,
-      message: device
-        ? `Comando ${seal ? 'CERRAR' : 'ABRIR'} enviado al candado`
-        : `Comando ${seal ? 'CERRAR' : 'ABRIR'} encolado, se enviará cuando conecte`,
+      message: device ? `Comando ${seal ? 'CERRAR' : 'ABRIR'} enviado` : `Comando ${seal ? 'CERRAR' : 'ABRIR'} encolado`,
       terminalId,
       action: seal ? "SEAL" : "UNSEAL",
       operatorName: operatorName ?? "admin",
@@ -145,79 +117,77 @@ router.post("/devices/:terminalId/fingerprint/register", (req, res) => {
   try {
     const { terminalId } = req.params;
     const { userName } = req.body as { userName: string };
-    if (!userName) {
-      return res.status(400).json({ ok: false, message: "Debes enviar userName" });
-    }
-
-    const command = buildEnableFingerprintRegister(
-      terminalId!,
-      Math.floor(Math.random() * 65535),
-    );
-
+    if (!userName) return res.status(400).json({ ok: false, message: "Debes enviar userName" });
+    const command = buildEnableFingerprintRegister(terminalId!, Math.floor(Math.random() * 65535));
     pendingRegistrations.set(terminalId!, { userName, startedAt: new Date() });
-
     const device = getDeviceByTerminalId(terminalId!);
     if (device) {
       device.socket.write(command);
-      console.log(`👆 Modo registro huella enviado a ${terminalId} - Usuario: ${userName}`);
     } else {
       queueCommand(terminalId!, command);
-      console.log(`📋 Modo registro huella encolado para ${terminalId} - Usuario: ${userName}`);
     }
-
     return res.json({
       ok: true,
-      message: device
-        ? "Modo registro activado. Pon el dedo en el candado."
-        : "Comando encolado. Se enviará cuando el candado conecte, luego pon el dedo.",
-      terminalId,
-      userName,
-      deviceOnline: device !== null,
-      expiresIn: "60 segundos",
+      message: device ? "Modo registro activado. Pon el dedo." : "Comando encolado.",
+      terminalId, userName, deviceOnline: device !== null,
     });
   } catch (error: any) {
     return res.status(500).json({ ok: false, message: error.message });
   }
 });
 
-// ✅ ACTIVAR AUTO-BINDING DE TARJETA/HUELLA
+// ✅ ACTIVAR AUTO-BINDING
 router.post("/devices/:terminalId/fingerprint/autobinding", (req, res) => {
   try {
     const { terminalId } = req.params;
-    const { minutes, userName } = req.body as { 
-      minutes?: number;
-      userName: string;
-    };
-    if (!userName) {
-      return res.status(400).json({ ok: false, message: "Debes enviar userName" });
+    const { minutes, userName } = req.body as { minutes?: number; userName: string };
+    if (!userName) return res.status(400).json({ ok: false, message: "Debes enviar userName" });
+    const command = buildEnableAutoCardBinding(terminalId!, Math.floor(Math.random() * 65535), minutes ?? 5);
+    pendingRegistrations.set(terminalId!, { userName, startedAt: new Date() });
+    const device = getDeviceByTerminalId(terminalId!);
+    if (device) {
+      device.socket.write(command);
+    } else {
+      queueCommand(terminalId!, command);
     }
+    return res.json({
+      ok: true,
+      message: device ? "Auto-binding activado. Pon el dedo." : "Comando encolado.",
+      terminalId, userName, deviceOnline: device !== null,
+      expiresIn: `${minutes ?? 5} minutos`,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ ok: false, message: error.message });
+  }
+});
 
-    const command = buildEnableAutoCardBinding(
-      terminalId!,
-      Math.floor(Math.random() * 65535),
-      minutes ?? 5
-    );
+// ✅ SETUP COMPLETO HUELLA (contraseña + autobinding)
+router.post("/devices/:terminalId/fingerprint/setup", (req, res) => {
+  try {
+    const { terminalId } = req.params;
+    const { userName, minutes } = req.body as { userName: string; minutes?: number };
+    if (!userName) return res.status(400).json({ ok: false, message: "Debes enviar userName" });
+
+    const passCmd = buildSetICCardPassword(terminalId!, Math.floor(Math.random() * 65535), "665512668834");
+    const bindCmd = buildEnableAutoCardBinding(terminalId!, Math.floor(Math.random() * 65535), minutes ?? 5);
 
     pendingRegistrations.set(terminalId!, { userName, startedAt: new Date() });
 
     const device = getDeviceByTerminalId(terminalId!);
     if (device) {
-      device.socket.write(command);
-      console.log(`👆 Auto-binding enviado directo a ${terminalId} - Usuario: ${userName}`);
+      device.socket.write(passCmd);
+      setTimeout(() => device.socket.write(bindCmd), 500);
+      console.log(`👆 Setup huella enviado a ${terminalId} - Usuario: ${userName}`);
     } else {
-      queueCommand(terminalId!, command);
-      console.log(`📋 Auto-binding encolado para ${terminalId} - Usuario: ${userName}`);
+      queueCommand(terminalId!, passCmd);
+      queueCommand(terminalId!, bindCmd);
+      console.log(`📋 Setup huella encolado para ${terminalId} - Usuario: ${userName}`);
     }
 
     return res.json({
       ok: true,
-      message: device
-        ? "Modo auto-binding activado. Pon el dedo en el candado."
-        : "Comando encolado. Se enviará cuando el candado conecte, luego pon el dedo.",
-      terminalId,
-      userName,
-      deviceOnline: device !== null,
-      expiresIn: `${minutes ?? 5} minutos`,
+      message: device ? "Setup enviado. Pon el dedo en el candado." : "Setup encolado. Se enviará cuando conecte.",
+      terminalId, userName, deviceOnline: device !== null,
     });
   } catch (error: any) {
     return res.status(500).json({ ok: false, message: error.message });
@@ -236,43 +206,17 @@ router.post("/devices/:terminalId/nfc/write", (req, res) => {
   try {
     const { terminalId } = req.params;
     const { cardId, blockNumber, address, userName } = req.body as {
-      cardId: string;
-      blockNumber?: number;
-      address?: number;
-      userName?: string;
+      cardId: string; blockNumber?: number; address?: number; userName?: string;
     };
-    if (!cardId) {
-      return res.status(400).json({ ok: false, message: "Debes enviar cardId (8 dígitos hex)" });
-    }
-    if (cardId.length !== 8) {
-      return res.status(400).json({ ok: false, message: "cardId debe tener exactamente 8 dígitos hex" });
-    }
-
-    const command = buildWriteICCard(
-      terminalId!,
-      Math.floor(Math.random() * 65535),
-      blockNumber ?? 0,
-      address ?? 0,
-      cardId
-    );
-
+    if (!cardId) return res.status(400).json({ ok: false, message: "Debes enviar cardId" });
+    if (cardId.length !== 8) return res.status(400).json({ ok: false, message: "cardId debe tener 8 dígitos hex" });
+    const command = buildWriteICCard(terminalId!, Math.floor(Math.random() * 65535), blockNumber ?? 0, address ?? 0, cardId);
     const device = getDeviceByTerminalId(terminalId!);
-    if (device) {
-      device.socket.write(command);
-    } else {
-      queueCommand(terminalId!, command);
-    }
-
-    console.log(`💳 Tarjeta ${cardId} ${device ? 'enviada' : 'encolada'} para candado ${terminalId} - Usuario: ${userName ?? 'N/A'}`);
-
+    if (device) { device.socket.write(command); } else { queueCommand(terminalId!, command); }
     return res.json({
       ok: true,
-      message: device
-        ? `Tarjeta ${cardId} enviada al candado`
-        : `Tarjeta ${cardId} encolada, se enviará cuando conecte`,
-      terminalId,
-      cardId,
-      userName: userName ?? null,
+      message: device ? `Tarjeta ${cardId} enviada` : `Tarjeta ${cardId} encolada`,
+      terminalId, cardId, userName: userName ?? null,
       deviceOnline: device !== null,
       hexSent: command.toString('hex').toUpperCase(),
       sentAt: new Date(),
@@ -287,9 +231,7 @@ router.get("/devices/:terminalId/nfc/read/:blockNumber", (req, res) => {
   try {
     const { terminalId, blockNumber } = req.params;
     const device = getDeviceByTerminalId(terminalId!);
-    if (!device) {
-      return res.status(404).json({ ok: false, message: `Candado ${terminalId} no está conectado` });
-    }
+    if (!device) return res.status(404).json({ ok: false, message: `Candado ${terminalId} no conectado` });
     const block = Number(blockNumber ?? 0);
     const body = Buffer.from([block]);
     const header = Buffer.alloc(12);
@@ -300,52 +242,47 @@ router.get("/devices/:terminalId/nfc/read/:blockNumber", (req, res) => {
     const packet = Buffer.concat([header, body]);
     let checksum = 0;
     for (const byte of packet) checksum ^= byte;
-    const command = Buffer.concat([
-      Buffer.from([0x7E]),
-      packet,
-      Buffer.from([checksum]),
-      Buffer.from([0x7E]),
-    ]);
+    const command = Buffer.concat([Buffer.from([0x7E]), packet, Buffer.from([checksum]), Buffer.from([0x7E])]);
     device.socket.write(command);
+    return res.json({ ok: true, message: `Leer tarjetas bloque ${block} enviado`, terminalId, blockNumber: block });
+  } catch (error: any) {
+    return res.status(500).json({ ok: false, message: error.message });
+  }
+});
+
+// ✅ MODO TRIGGER TARJETA
+router.post("/devices/:terminalId/nfc/triggermode", (req, res) => {
+  try {
+    const { terminalId } = req.params;
+    const { mode } = req.body as { mode?: number };
+    const command = buildSetCardTriggerMode(terminalId!, Math.floor(Math.random() * 65535), mode ?? 0);
+    const device = getDeviceByTerminalId(terminalId!);
+    if (device) { device.socket.write(command); } else { queueCommand(terminalId!, command); }
     return res.json({
       ok: true,
-      message: `Comando leer tarjetas bloque ${block} enviado`,
-      terminalId,
-      blockNumber: block,
+      message: device ? `Modo trigger ${mode ?? 0} enviado` : `Modo trigger ${mode ?? 0} encolado`,
+      deviceOnline: device !== null,
+      hexSent: command.toString('hex').toUpperCase(),
     });
   } catch (error: any) {
     return res.status(500).json({ ok: false, message: error.message });
   }
 });
 
-// Configurar modo detección tarjeta/huella
-router.post("/devices/:terminalId/nfc/triggermode", (req, res) => {
+// ✅ TOUCH WAKE-UP BLE
+router.post("/devices/:terminalId/ble/wakeup", (req, res) => {
   try {
     const { terminalId } = req.params;
-    const { mode } = req.body as { mode?: number };
-
-    const command = buildSetCardTriggerMode(
-      terminalId!,
-      Math.floor(Math.random() * 65535),
-      mode ?? 0
-    );
-
+    const { enable } = req.body as { enable?: boolean };
+    const command = buildEnableTouchWakeUp(terminalId!, Math.floor(Math.random() * 65535), enable ?? true);
     const device = getDeviceByTerminalId(terminalId!);
-    if (device) {
-      device.socket.write(command);
-    } else {
-      queueCommand(terminalId!, command);
-    }
-
+    if (device) { device.socket.write(command); } else { queueCommand(terminalId!, command); }
     return res.json({
       ok: true,
-      message: device
-        ? `Modo trigger ${mode ?? 0} enviado`
-        : `Modo trigger ${mode ?? 0} encolado`,
+      message: device ? "Touch wake-up enviado" : "Touch wake-up encolado",
       deviceOnline: device !== null,
       hexSent: command.toString('hex').toUpperCase(),
     });
-
   } catch (error: any) {
     return res.status(500).json({ ok: false, message: error.message });
   }
